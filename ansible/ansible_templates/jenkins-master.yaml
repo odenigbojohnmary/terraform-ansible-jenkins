@@ -1,0 +1,63 @@
+---
+- hosts: "{{ passed_in_hosts }}"
+become: yes
+remote_user: ec2-user
+become_user: root
+tasks:
+  - name: install dependencies
+    yum:
+      name: "{{ packages }}"
+      state: present
+    vars:
+      packages:
+      - wget
+      - java-1.8.0-openjdk-devel
+      - git
+  - name: clone preconfigured Jenkins files
+    git: 
+      repo: https://github.com/linuxacademy/content-terraform-jenkins.git
+      dest: /tmp/jenkins
+  - name: setup Jenkins Repo
+    get_url:
+      url: https://pkg.jenkins.io/redhat/jenkins.repo
+      dest: etc/yum.repos.d/jenkins.repo
+  - name: Import Jenkins Repo GPG Key
+    rpm_key:
+      state: present
+      key: https://pkg.jenkins.io/redhat/jenkins.io.key
+  - name: Install jenkins
+    yum:
+      name: jenkins
+      state: present
+  - name: Temporarily stop Jenkins
+    service:
+      name: jenkins
+      state: stopped
+  - name: Delete Jenkins default dir
+    file:
+      state: absent
+      path: /var/lib/jenkins
+  - name: Copy over cloned Jenkins /var/lib/jenkins
+    copy:
+      remote_src: yes
+      src: /tmp/jenkins/jenkins
+      dest: /var/lib
+  - name: Restore Jebkins user ownership on /var/lib/jenkins
+    file:
+      path: /var/lib/jenkins
+      state: directory
+      recurse: yes
+      owner: jenkins
+  - name: Start Jenkins
+    service:
+      name: jenkins
+      state: started
+      enabled: yes
+  - name: wait until Jenkins is up
+    shell: result_first=1; while [[ $result_first !=0 ]]; do if [[ `grep 'Jenkins is fully up and running' /var/log/jenkins/jenkins.log` ]]; then result_first=0; else sleep 4; fi; done
+    register: result
+    until: result.rc == 0
+
+# check the syntax for ansible
+# ansible-playbook --syntax-check -e "passed_in_hosts=localhost" install_jenkins_master.yml
+  
